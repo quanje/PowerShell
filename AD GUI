@@ -1,0 +1,80 @@
+# Load required .NET assemblies
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+ 
+# Import the Active Directory module (requires RSAT or AD module installed)
+Import-Module ActiveDirectory -ErrorAction SilentlyContinue
+ 
+# Create the main form
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "Active Directory Search"
+$form.Size = New-Object System.Drawing.Size(600,500)
+$form.StartPosition = "CenterScreen"
+ 
+# Create a label for the search input
+$labelInput = New-Object System.Windows.Forms.Label
+$labelInput.Location = New-Object System.Drawing.Point(10,10)
+$labelInput.Size = New-Object System.Drawing.Size(250,20)
+$labelInput.Text = "Enter a User or Computer Name (or part of it):"
+$form.Controls.Add($labelInput)
+ 
+# Create a textbox for entering the search term
+$inputBox = New-Object System.Windows.Forms.TextBox
+$inputBox.Location = New-Object System.Drawing.Point(10,35)
+$inputBox.Size = New-Object System.Drawing.Size(400,20)
+$form.Controls.Add($inputBox)
+ 
+# Create a button to initiate the search
+$searchButton = New-Object System.Windows.Forms.Button
+$searchButton.Location = New-Object System.Drawing.Point(420,33)
+$searchButton.Size = New-Object System.Drawing.Size(150,25)
+$searchButton.Text = "Search AD"
+$form.Controls.Add($searchButton)
+ 
+# Create a multiline textbox for displaying results
+$outputBox = New-Object System.Windows.Forms.TextBox
+$outputBox.Location = New-Object System.Drawing.Point(10,70)
+$outputBox.Size = New-Object System.Drawing.Size(560,380)
+$outputBox.Multiline = $true
+$outputBox.ScrollBars = "Vertical"
+$outputBox.ReadOnly = $true
+$form.Controls.Add($outputBox)
+ 
+# Define the action when the Search button is clicked
+$searchButton.Add_Click({
+    $searchTerm = $inputBox.Text.Trim()
+    $outputBox.Clear()
+    
+    if ([string]::IsNullOrWhiteSpace($searchTerm)) {
+        [System.Windows.Forms.MessageBox]::Show("Please enter a name to search.", "Input Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+        return
+    }
+    
+    try {
+        # Search for users in AD whose Name contains the search term
+        $userResults = Get-ADUser -Filter "Name -like '*$searchTerm*'" -Properties SamAccountName, Name, EmailAddress, Department, Title | Format-List | Out-String
+        # Search for computers in AD whose Name contains the search term
+        $computerResults = Get-ADComputer -Filter "Name -like '*$searchTerm*'" -Properties Name, OperatingSystem, LastLogonDate, DNSHostName | Format-List | Out-String
+        
+        $resultOutput = ""
+        if (-not [string]::IsNullOrWhiteSpace($userResults)) {
+            $resultOutput += "----- User Results -----`n"
+            $resultOutput += $userResults + "`n"
+        }
+        if (-not [string]::IsNullOrWhiteSpace($computerResults)) {
+            $resultOutput += "----- Computer Results -----`n"
+            $resultOutput += $computerResults + "`n"
+        }
+        if ([string]::IsNullOrWhiteSpace($resultOutput)) {
+            $resultOutput = "No user or computer found matching '$searchTerm'."
+        }
+        $outputBox.Text = $resultOutput
+    }
+    catch {
+        $outputBox.Text = "Error during search: " + $_.Exception.Message
+    }
+})
+ 
+# Enable visual styles and run the form
+[System.Windows.Forms.Application]::EnableVisualStyles()
+[System.Windows.Forms.Application]::Run($form)
