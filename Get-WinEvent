@@ -1,0 +1,1 @@
+Get-WinEvent -ComputerName "RemoteComputerName" -LogName "Application" -MaxEvents 50
