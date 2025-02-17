@@ -1,0 +1,1 @@
+Get-WinEvent -ComputerName "RemoteComputerName" -LogName "Microsoft-Windows-Sysmon/Operational" -MaxEvents 50 | Format-List
