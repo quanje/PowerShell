@@ -1,0 +1,188 @@
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+ 
+# Import Active Directory module (requires RSAT or AD module installed)
+Import-Module ActiveDirectory -ErrorAction SilentlyContinue
+ 
+# Create the main form
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "Multi-Option GUI"
+$form.Size = New-Object System.Drawing.Size(600,600)
+$form.StartPosition = "CenterScreen"
+ 
+# Create a label for option selection
+$labelOption = New-Object System.Windows.Forms.Label
+$labelOption.Location = New-Object System.Drawing.Point(10,10)
+$labelOption.Size = New-Object System.Drawing.Size(200,20)
+$labelOption.Text = "Select Option (1-3):"
+$form.Controls.Add($labelOption)
+ 
+# Create a ComboBox for selecting an option
+$comboBox = New-Object System.Windows.Forms.ComboBox
+$comboBox.Location = New-Object System.Drawing.Point(220,10)
+$comboBox.Size = New-Object System.Drawing.Size(250,20)
+$comboBox.DropDownStyle = "DropDownList"
+$comboBox.Items.Add("1: Ping Host")
+$comboBox.Items.Add("2: Active Directory Search")
+$comboBox.Items.Add("3: Logtracks")
+$comboBox.SelectedIndex = 0
+$form.Controls.Add($comboBox)
+ 
+# Create a label for the input field
+$labelInput = New-Object System.Windows.Forms.Label
+$labelInput.Location = New-Object System.Drawing.Point(10,40)
+$labelInput.Size = New-Object System.Drawing.Size(200,20)
+$labelInput.Text = "Enter Host/Name (or part of it):"
+$form.Controls.Add($labelInput)
+ 
+# Create a textbox for entering the search term
+$inputBox = New-Object System.Windows.Forms.TextBox
+$inputBox.Location = New-Object System.Drawing.Point(220,40)
+$inputBox.Size = New-Object System.Drawing.Size(250,20)
+$form.Controls.Add($inputBox)
+ 
+# Create a button for one-time Run Command actions
+$runButton = New-Object System.Windows.Forms.Button
+$runButton.Location = New-Object System.Drawing.Point(10,80)
+$runButton.Size = New-Object System.Drawing.Size(150,30)
+$runButton.Text = "Run Command"
+$form.Controls.Add($runButton)
+ 
+# Create a button to start continuous ping
+$startPingButton = New-Object System.Windows.Forms.Button
+$startPingButton.Location = New-Object System.Drawing.Point(170,80)
+$startPingButton.Size = New-Object System.Drawing.Size(150,30)
+$startPingButton.Text = "Start Continuous Ping"
+$form.Controls.Add($startPingButton)
+ 
+# Create a button to stop continuous ping
+$stopPingButton = New-Object System.Windows.Forms.Button
+$stopPingButton.Location = New-Object System.Drawing.Point(330,80)
+$stopPingButton.Size = New-Object System.Drawing.Size(150,30)
+$stopPingButton.Text = "Stop Continuous Ping"
+$form.Controls.Add($stopPingButton)
+ 
+# Create a multiline, read-only textbox to display the output
+$outputBox = New-Object System.Windows.Forms.TextBox
+$outputBox.Location = New-Object System.Drawing.Point(10,120)
+$outputBox.Size = New-Object System.Drawing.Size(560,420)
+$outputBox.Multiline = $true
+$outputBox.ScrollBars = "Vertical"
+$outputBox.ReadOnly = $true
+$form.Controls.Add($outputBox)
+ 
+# Create a global Timer for continuous ping
+$pingTimer = New-Object System.Windows.Forms.Timer
+$pingTimer.Interval = 1000  # 1 second interval
+$pingTimer.Add_Tick({
+    $currentTarget = $inputBox.Text.Trim()
+    if ([string]::IsNullOrWhiteSpace($currentTarget)) { return }
+    try {
+        $pingResult = Test-Connection -ComputerName $currentTarget -Count 1 -ErrorAction Stop
+        $resultText = ($pingResult | ForEach-Object {
+            "Reply from $($_.Address): bytes=$($_.BufferSize) time=$($_.ResponseTime)ms TTL=$($_.TimeToLive)"
+        }) -join "`r`n"
+        $outputBox.AppendText($resultText + "`r`n")
+    }
+    catch {
+        $outputBox.AppendText("Error during ping: " + $_.Exception.Message + "`r`n")
+    }
+})
+ 
+# Define the Run Command button click event (for one-time actions)
+$runButton.Add_Click({
+    $selectedOption = $comboBox.SelectedItem
+    $searchTerm = $inputBox.Text.Trim()
+    $outputBox.Clear()
+    if ([string]::IsNullOrWhiteSpace($searchTerm)) {
+        [System.Windows.Forms.MessageBox]::Show("Please enter a valid search term.","Input Error", 
+            [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+        return
+    }
+    switch ($selectedOption) {
+        "1: Ping Host" {
+            try {
+                # Stop the global continuous ping timer to avoid interference.
+                $pingTimer.Stop()
+                # Store the target in a script-scoped variable.
+                $script:target = $searchTerm
+                # Initialize script-scoped ping counter.
+                $script:pingCounter = 0
+                # Create a temporary timer (script-scoped) for one-time pings.
+                $script:tempTimer = New-Object System.Windows.Forms.Timer
+                $script:tempTimer.Interval = 1000  # 1 second interval
+                $script:tempTimer.Add_Tick({
+                    try {
+                        $pingResult = Test-Connection -ComputerName $script:target -Count 1 -ErrorAction Stop
+                        $resultText = ($pingResult | ForEach-Object {
+                            "Reply from $($_.Address): bytes=$($_.BufferSize) time=$($_.ResponseTime)ms TTL=$($_.TimeToLive)"
+                        }) -join "`r`n"
+                        $outputBox.AppendText($resultText + "`r`n")
+                    }
+                    catch {
+                        $outputBox.AppendText("Error during ping: " + $_.Exception.Message + "`r`n")
+                    }
+                    $script:pingCounter++
+                    if ($script:pingCounter -ge 4) {
+                        $script:tempTimer.Stop()
+                        $script:tempTimer.Dispose()
+                    }
+                })
+                $script:tempTimer.Start()
+            }
+            catch {
+                $outputBox.Text = "Error during ping: " + $_.Exception.Message
+            }
+        }
+        "2: Active Directory Search" {
+            try {
+                $userResults = Get-ADUser -Filter "Name -like '*$searchTerm*'" -Properties SamAccountName, Name, EmailAddress, Department, Title | Format-List | Out-String
+                $computerResults = Get-ADComputer -Filter "Name -like '*$searchTerm*'" -Properties Name, OperatingSystem, LastLogonDate, DNSHostName | Format-List | Out-String
+                $resultOutput = ""
+                if (-not [string]::IsNullOrWhiteSpace($userResults)) {
+                    $resultOutput += "----- User Results -----`n" + $userResults + "`n"
+                }
+                if (-not [string]::IsNullOrWhiteSpace($computerResults)) {
+                    $resultOutput += "----- Computer Results -----`n" + $computerResults + "`n"
+                }
+                if ([string]::IsNullOrWhiteSpace($resultOutput)) {
+                    $resultOutput = "No user or computer found matching '$searchTerm'."
+                }
+                $outputBox.Text = $resultOutput
+            }
+            catch {
+                $outputBox.Text = "Error during AD search: " + $_.Exception.Message
+            }
+        }
+        "3: Logtracks" {
+            try {
+                $logtracks = Get-Content \\*\*$searchTerm* -Tail 25 | Format-List | Out-String
+                $resultOutput = ""
+                if (-not [string]::IsNullOrWhiteSpace($logtracks)) {
+                    $resultOutput += "----- Logtracks Results -----`n" + $logtracks + "`n"
+                }
+                if ([string]::IsNullOrWhiteSpace($resultOutput)) {
+                    $resultOutput = "No logtracks found matching '$searchTerm'."
+                }
+                $outputBox.Text = $resultOutput
+            }
+            catch {
+                $outputBox.Text = "Error during LogTrack search: " + $_.Exception.Message
+            }
+        }
+    }
+})
+ 
+# Define the Start Continuous Ping button click event
+$startPingButton.Add_Click({
+    $outputBox.Clear()
+    $pingTimer.Start()
+})
+ 
+# Define the Stop Continuous Ping button click event
+$stopPingButton.Add_Click({
+    $pingTimer.Stop()
+})
+ 
+[System.Windows.Forms.Application]::EnableVisualStyles()
+[System.Windows.Forms.Application]::Run($form)
