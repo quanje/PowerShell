@@ -1,0 +1,104 @@
+# Load required .NET assemblies
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+ 
+# Create the main form
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "Continuous Ping GUI"
+$form.Size = New-Object System.Drawing.Size(600,500)
+$form.StartPosition = "CenterScreen"
+ 
+# Create a label for host input
+$labelHost = New-Object System.Windows.Forms.Label
+$labelHost.Text = "Enter Host (IP or Name):"
+$labelHost.Location = New-Object System.Drawing.Point(10,10)
+$labelHost.Size = New-Object System.Drawing.Size(150,20)
+$form.Controls.Add($labelHost)
+ 
+# Create a textbox for entering the host name or IP address
+$textBoxHost = New-Object System.Windows.Forms.TextBox
+$textBoxHost.Location = New-Object System.Drawing.Point(170,10)
+$textBoxHost.Size = New-Object System.Drawing.Size(200,20)
+$form.Controls.Add($textBoxHost)
+ 
+# Create a label for ping interval
+$labelInterval = New-Object System.Windows.Forms.Label
+$labelInterval.Text = "Ping Interval (ms):"
+$labelInterval.Location = New-Object System.Drawing.Point(10,40)
+$labelInterval.Size = New-Object System.Drawing.Size(150,20)
+$form.Controls.Add($labelInterval)
+ 
+# Create a textbox for entering the ping interval (default 1000 ms = 1 second)
+$textBoxInterval = New-Object System.Windows.Forms.TextBox
+$textBoxInterval.Location = New-Object System.Drawing.Point(170,40)
+$textBoxInterval.Size = New-Object System.Drawing.Size(100,20)
+$textBoxInterval.Text = "1000"
+$form.Controls.Add($textBoxInterval)
+ 
+# Create a button to start the ping
+$startButton = New-Object System.Windows.Forms.Button
+$startButton.Text = "Start Ping"
+$startButton.Location = New-Object System.Drawing.Point(10,70)
+$startButton.Size = New-Object System.Drawing.Size(100,30)
+$form.Controls.Add($startButton)
+ 
+# Create a button to stop the ping
+$stopButton = New-Object System.Windows.Forms.Button
+$stopButton.Text = "Stop Ping"
+$stopButton.Location = New-Object System.Drawing.Point(120,70)
+$stopButton.Size = New-Object System.Drawing.Size(100,30)
+$form.Controls.Add($stopButton)
+ 
+# Create a multiline, read-only textbox to display the ping results
+$outputBox = New-Object System.Windows.Forms.TextBox
+$outputBox.Location = New-Object System.Drawing.Point(10,110)
+$outputBox.Size = New-Object System.Drawing.Size(560,340)
+$outputBox.Multiline = $true
+$outputBox.ScrollBars = "Vertical"
+$outputBox.ReadOnly = $true
+$form.Controls.Add($outputBox)
+ 
+# Create a Timer object for continuous pinging
+$timer = New-Object System.Windows.Forms.Timer
+ 
+# Define the Timer tick event to execute the ping command
+$timer.add_Tick({
+    $host = $textBoxHost.Text.Trim()
+    if (-not [string]::IsNullOrEmpty($host)) {
+        try {
+            # Execute a single ping and create a custom formatted output (single column)
+            $resultObj = Test-Connection -ComputerName $host -Count 1 -ErrorAction SilentlyContinue
+            if ($resultObj) {
+                $resultString = $resultObj | ForEach-Object {
+                    "Reply from $($_.Address): bytes=$($_.BufferSize) time=$($_.ResponseTime)ms TTL=$($_.TimeToLive)"
+                } | Out-String
+            }
+            else {
+                $resultString = "Ping failed or host unreachable."
+            }
+            # Get the current timestamp for logging
+            $timeStamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            # Append the result as a single line of text with timestamp
+            $outputBox.AppendText("[$timeStamp] $resultString`n")
+        }
+        catch {
+            $outputBox.AppendText("Error: " + $_.Exception.Message + "`n")
+        }
+    }
+})
+ 
+# Define the Start Ping button click event
+$startButton.Add_Click({
+    # Set timer interval based on the user input (in milliseconds)
+    $timer.Interval = [int]$textBoxInterval.Text
+    $timer.Start()
+})
+ 
+# Define the Stop Ping button click event
+$stopButton.Add_Click({
+    $timer.Stop()
+})
+ 
+# Enable visual styles and run the form
+[System.Windows.Forms.Application]::EnableVisualStyles()
+[System.Windows.Forms.Application]::Run($form)
